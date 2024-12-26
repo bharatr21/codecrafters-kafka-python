@@ -53,7 +53,14 @@ def handle_client(client):
     print(f"Received data: {data}")
     kafka_info_dict = parse_kafka_header(data)
     correlation_id = kafka_info_dict["correlation_id"]
-    client.sendall(create_message(correlation_id))
+    request_api_version = kafka_info_dict["request_api_version"]
+    print(f"Request API version: {request_api_version}")
+    UNSUPPORTED_API_VERSION = 35
+    SUCCESS = 0
+    if not 0 <= request_api_version <= 4:
+        client.sendall(create_message(correlation_id) + UNSUPPORTED_API_VERSION.to_bytes(2, "big")) # Unsupported version
+    else:
+        client.sendall(create_message(correlation_id) + SUCCESS.to_bytes(2, "big"))
     client.close()
 
 def main():
