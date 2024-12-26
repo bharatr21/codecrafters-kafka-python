@@ -1,4 +1,47 @@
 import socket  # noqa: F401
+import struct
+
+
+def parse_kafka_header(data):
+    """
+    Parse the Kafka request header and extract the fields.
+
+    Parameters:
+    - data (bytes): The raw bytes received from the socket.
+
+    Returns:
+    - dict: A dictionary containing the parsed fields from the header.
+    """
+    # Kafka Request Header structure:
+    # message_size (4 bytes INT32)
+    # request_api_key (2 bytes INT16)
+    # request_api_version (2 bytes INT16)
+    # correlation_id (4 bytes INT32)
+    # client_id (nullable string with 2-byte length prefix)
+    # tag_buffer (optional compact array, skipped in this example)
+
+    if len(data) < 10:
+        raise ValueError("Incomplete Kafka header")
+
+    # Unpack fixed-length fields
+    message_size, request_api_key, request_api_version, correlation_id = struct.unpack_from('>ihhI', data, 0)
+
+    # Read the client_id
+    client_id_length = struct.unpack_from('>h', data, 10)[0]
+    offset = 12
+    if client_id_length == -1:  # NULLABLE_STRING
+        client_id = None
+    else:
+        client_id = data[offset:offset + client_id_length].decode('utf-8')
+        offset += client_id_length
+
+    return {
+        'message_size': message_size,
+        'request_api_key': request_api_key,
+        'request_api_version': request_api_version,
+        'correlation_id': correlation_id,
+        'client_id': client_id
+    }
 
 
 def create_message(id):
@@ -8,7 +51,9 @@ def create_message(id):
 def handle_client(client):
     data = client.recv(1024)
     print(f"Received data: {data}")
-    client.sendall(create_message(7))
+    kafka_info_dict = parse_kafka_header(data)
+    correlation_id = kafka_info_dict["correlation_id"]
+    client.sendall(create_message(correlation_id))
     client.close()
 
 def main():
