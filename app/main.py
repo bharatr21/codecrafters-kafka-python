@@ -49,10 +49,7 @@ def create_message(response):
     message = response_length.to_bytes(4) + response
     return message
 
-def handle_client(client):
-    data = client.recv(1024)
-    print(f"Received data: {data}")
-    kafka_info_dict = parse_kafka_header(data)
+def make_response(kafka_info_dict):
     correlation_id = kafka_info_dict["correlation_id"]
     request_api_version = kafka_info_dict["request_api_version"]
     request_api_key = kafka_info_dict["request_api_key"]
@@ -77,16 +74,21 @@ def handle_client(client):
     )
 
     response = response_header + response_body
+    return response
+
+def handle_client(client):
+    data = client.recv(1024)
+    print(f"Received data: {data}")
+    kafka_info_dict = parse_kafka_header(data)
+    response = make_response(kafka_info_dict)
     message = create_message(response)
     client.sendall(message)
-    client.close()
 
 def main():
     server = socket.create_server(("localhost", 9092), reuse_port=True)
     server.listen()
-
+    client, client_address = server.accept()
     while True:
-        client, client_address = server.accept()
         print(f"Received connection from {client_address}")
         handle_client(client)
 
