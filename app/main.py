@@ -1,6 +1,25 @@
 import socket  # noqa: F401
 import struct
 import threading
+from enum import Enum
+
+class ErrorCodes(Enum):
+    NO_ERROR = 0
+    UNKNOWN_SERVER_ERROR = 1
+    COORDINATOR_NOT_AVAILABLE = 15
+    UNSUPPORTED_API_VERSION = 35
+
+class RequestTypes(Enum):
+    APIVersions = {
+        "value": 18,
+        "MinVersion": 0,
+        "MaxVersion": 4
+    }
+    DescribeTopicPartitions = {
+        "value": 75,
+        "MinVersion": 0,
+        "MaxVersion": 0
+    }
 
 
 def parse_kafka_header(data):
@@ -45,6 +64,12 @@ def parse_kafka_header(data):
     }
 
 
+def get_request_type(request_api_key):
+    for req_type in RequestTypes:
+        if req_type.value["value"] == request_api_key:
+            return req_type
+    return None
+
 def create_message(response):
     response_length = len(response)
     message = response_length.to_bytes(4) + response
@@ -55,21 +80,20 @@ def make_response(kafka_info_dict):
     request_api_version = kafka_info_dict["request_api_version"]
     request_api_key = kafka_info_dict["request_api_key"]
     client_id = kafka_info_dict["client_id"]
-    valid_api_versions = list(range(5))
+    request_type = get_request_type(request_api_key)
+    min_version = request_type.value["MinVersion"]
+    max_version = request_type.value["MaxVersion"]
+    valid_api_versions = list(range(min_version, max_version + 1))
     throttle_time_ms = 0
-    UNSUPPORTED_API_VERSION = 35
-    NO_ERROR = 0
-    error_code = NO_ERROR if request_api_version in valid_api_versions else UNSUPPORTED_API_VERSION
-    min_version, max_version = 0, 4
+    error = ErrorCodes.NO_ERROR if request_api_version in valid_api_versions else ErrorCodes.UNSUPPORTED_API_VERSION
+    error_code = error.value
     tag_buffer = b"\x00" # Setting to 0 for now
     response_header = correlation_id.to_bytes(4)
+    response_body = error_code.to_bytes(2, "big") + int(len(RequestTypes) + 1).to_bytes(1, "big") # num_api_keys
+    for req_type in RequestTypes:
+        response_body += req_type.value["value"].to_bytes(2, "big") + req_type.value["MinVersion"].to_bytes(2, "big") + req_type.value["MaxVersion"].to_bytes(2, "big") + tag_buffer
     response_body = (
-    error_code.to_bytes(2, "big")
-    + int(1 + 1).to_bytes(1, "big") # num_api_keys = 1
-    + request_api_key.to_bytes(2, "big")
-    + min_version.to_bytes(2, "big")
-    + max_version.to_bytes(2, "big")
-    + tag_buffer # No tag buffer for API keys
+    response_body
     + throttle_time_ms.to_bytes(4, "big")
     + tag_buffer # No tagged fields for entire response
     )
