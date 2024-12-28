@@ -44,9 +44,10 @@ def parse_kafka_header(data):
     }
 
 
-def create_message(id):
-    id_bytes = id.to_bytes(4, "big")
-    return len(id_bytes).to_bytes(4, "big") + id_bytes
+def create_message(response):
+    response_length = len(response)
+    message = response_length.to_bytes(4) + response
+    return message
 
 def handle_client(client):
     data = client.recv(1024)
@@ -54,13 +55,30 @@ def handle_client(client):
     kafka_info_dict = parse_kafka_header(data)
     correlation_id = kafka_info_dict["correlation_id"]
     request_api_version = kafka_info_dict["request_api_version"]
-    print(f"Request API version: {request_api_version}")
+    request_api_key = kafka_info_dict["request_api_key"]
+    client_id = kafka_info_dict["client_id"]
+    valid_api_versions = list(range(5))
+    throttle_time_ms = 0
     UNSUPPORTED_API_VERSION = 35
-    SUCCESS = 0
-    if not 0 <= request_api_version <= 4:
-        client.sendall(create_message(correlation_id) + UNSUPPORTED_API_VERSION.to_bytes(2, "big")) # Unsupported version
-    else:
-        client.sendall(create_message(correlation_id) + SUCCESS.to_bytes(2, "big"))
+    NO_ERROR = 0
+    error_code = NO_ERROR if request_api_version in valid_api_versions else UNSUPPORTED_API_VERSION
+    min_version, max_version = 0, 4
+    tag_buffer = b"\x00" # Setting to 0 for now
+    response_header = correlation_id.to_bytes(4)
+    response_body = (
+    error_code.to_bytes(2, "big")
+    + int(1 + 1).to_bytes(1, "big") # num_api_keys = 1
+    + request_api_key.to_bytes(2, "big")
+    + min_version.to_bytes(2, "big")
+    + max_version.to_bytes(2, "big")
+    + tag_buffer # No tag buffer for API keys
+    + throttle_time_ms.to_bytes(4, "big")
+    + tag_buffer # No tagged fields for entire response
+    )
+
+    response = response_header + response_body
+    message = create_message(response)
+    client.sendall(message)
     client.close()
 
 def main():
