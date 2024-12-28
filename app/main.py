@@ -1,5 +1,6 @@
 import socket  # noqa: F401
 import struct
+import threading
 
 
 def parse_kafka_header(data):
@@ -76,22 +77,22 @@ def make_response(kafka_info_dict):
     response = response_header + response_body
     return response
 
-def handle_client(client):
-    data = client.recv(1024)
-    print(f"Received data: {data}")
-    kafka_info_dict = parse_kafka_header(data)
-    response = make_response(kafka_info_dict)
-    message = create_message(response)
-    client.sendall(message)
+def handle_client(client, client_address):
+    print(f"Received connection from {client_address}")
+    while True:
+        data = client.recv(1024)
+        print(f"Received data: {data}")
+        kafka_info_dict = parse_kafka_header(data)
+        response = make_response(kafka_info_dict)
+        message = create_message(response)
+        client.sendall(message)
 
 def main():
     server = socket.create_server(("localhost", 9092), reuse_port=True)
-    server.listen()
-    client, client_address = server.accept()
     while True:
-        print(f"Received connection from {client_address}")
-        handle_client(client)
-
+        client, client_address = server.accept()
+        t = threading.Thread(target=handle_client, args=(client, client_address))
+        t.start()
 
 if __name__ == "__main__":
     main()
